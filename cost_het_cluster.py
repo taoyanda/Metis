@@ -3,6 +3,7 @@ import argparse
 from typing import Dict, List, Tuple
 import sys
 import os
+import pickle
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -40,7 +41,7 @@ def cost_het_cluster(args: argparse.Namespace, gpu_cluster: GPUCluster, profile_
                 cost = cost_estimator.get_cost(inter_stage_plan, intra_stage_plan.strategies,
                                                intra_stage_plan.layer_partition, rank_device_map)
                 print(f'cost: {cost}')
-                estimate_costs.append((inter_stage_plan.node_sequence, inter_stage_plan.device_groups,
+                estimate_costs.append((inter_stage_plan.node_sequence, inter_stage_plan.device_groups, rank_device_map,
                                        intra_stage_plan.strategies, inter_stage_plan.batches,
                                        intra_stage_plan.layer_partition, intra_stage_plan.num_repartition, cost))
             except KeyError as e:
@@ -70,8 +71,19 @@ if __name__ == '__main__':
     estimate_costs = cost_het_cluster(args, gpu_cluster, profile_data, model_config, cost_estimator, layer_load_balancer)
 
     print(f'len(costs): {len(estimate_costs)}')
-    sorted_result = sorted(estimate_costs, key=lambda kv: kv[6])
+    sorted_result = sorted(estimate_costs, key=lambda kv: kv[7])
+    filtered_result = []
     print(
-        'rank, cost, node_sequence, device_groups, strategies(dp_deg, tp_deg), batches(number of batch), layer_partition')
+        'rank, cost, node_sequence, device_groups, rank_deivce_map, strategies(dp_deg, tp_deg), batches(number of batch), layer_partition')
     for idx, result in enumerate(sorted_result):
-        print(f'{idx + 1}, {result[6]}, {result[0]}, {result[1]}, {result[2]}, {result[3]}, {result[4]}')
+        node_sequence, device_groups, rank_device_map, strategies, batches, layer_partition, num_repartition, cost = result
+        print(f'{idx + 1}, {cost}, {node_sequence}, {device_groups}, {rank_device_map}, {strategies}, {batches}, {layer_partition}')
+        filtered_result.append((device_groups, rank_device_map, strategies, batches, layer_partition, cost))
+    
+    savename = f"metis_het_{args.model_name}-{args.model_size}-{args.gbs}.pkl"
+    results_path = os.path.join(args.log_path, savename)
+
+    with open(results_path, 'wb') as f:
+        pickle.dump(filtered_result, f)
+
+    print(f"Results saved at {results_path}")
